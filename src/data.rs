@@ -8,7 +8,9 @@ use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 
-use std::path::Path;
+use std::path::{Path,PathBuf};
+
+use std::ffi::{OsStr,OsString};
 
 use std::io::{Error, ErrorKind};
 
@@ -16,6 +18,8 @@ use filebuffer::FileBuffer;
 
 use paranoid_hash::ParanoidHash;
 use paranoid_hash::OsAlgorithm;
+
+use dirs::*;
 
 use crate::constants::BLAKE2B_DIGEST_SIZE_IN_BYTES;
 
@@ -30,19 +34,20 @@ use crate::errors::CiderErrors;
     // PoW must be done to prevent spam and only allow certain files to upload
 #[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
 pub struct FileData {
+    // CID
+    pub cid: String,
+
+    // Data + Nonce
     pub data: Vec<u8>,
     pub nonce: Option<u64>,
-    pub cid: String,
+
+    // Extension
+    pub extension: Option<OsString>
 }
 
-#[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
-pub struct DataPiece {
-    // Data
-    pub file: FileData,
-
-    // Layer
+pub struct FileMetaData {
     pub layer: RingLayer,
-    
+
     // Metadata
     pub media_type: MediaType,
     pub extension: Option<String>, // Up to 4 chars
@@ -61,6 +66,17 @@ pub struct DataPiece {
     pub unverified_signature: Option<String>,
 }
 
+#[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
+pub struct DataPiece {
+    // Data
+    pub file: FileData,
+
+    // Layer
+    pub layer: RingLayer,
+    
+
+}
+
 impl FileData {
     /// # New
     /// 
@@ -70,6 +86,8 @@ impl FileData {
     /// 
     /// CID Length: 77 bytes (or chars)
     pub fn new<T: AsRef<Path>>(path: T) -> Self {
+        let extension = path.as_ref().extension().expect("[Error 0x0002] Failed To Get File Extension").to_os_string();
+        
         let fbuffer = FileBuffer::open(path.as_ref()).expect("[Error 0x0001] Failed To Open/Read File While Generating FileData Struct.");
         let mut bytes = fbuffer.to_vec();
 
@@ -84,9 +102,13 @@ impl FileData {
             data: bytes,
             nonce: None,
             cid: cid,
+            extension: Some(extension),
         }
     }
     pub fn new_pow<T: AsRef<Path>, S: AsRef<str>>(path: T, cid_pow: S) -> Result<Self,CiderErrors> {
+        let extension = path.as_ref().extension().expect("[Error 0x0002] Failed To Get File Extension").to_os_string();
+
+        
         // Read File
         let fbuffer = FileBuffer::open(path.as_ref()).expect("[Error 0x0002] Failed To Open/Read File While Generating FileData Struct (new_pow).");
         let mut bytes = fbuffer.to_vec();
@@ -124,6 +146,7 @@ impl FileData {
                     data: bytes,
                     nonce: Some(nonce_u64),
                     cid: cid,
+                    extension: Some(extension),
                 })
             }
             else {
@@ -132,7 +155,13 @@ impl FileData {
 
         }
     }
+    pub fn return_cid(&self) -> String {
+        return self.cid.clone()
+    }
     pub fn verify(&self) -> bool {
+        // Asserts CID is 77 bytes long
+        assert_eq!(self.cid.len(),77usize);
+
         if self.nonce == None {
             let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES,OsAlgorithm::SHA512);
             let output = context.read_bytes(&self.data);
@@ -170,6 +199,32 @@ impl FileData {
             }
         }
     }
+    pub fn download<T: AsRef<Path>>(&self, mut path: Option<T>) -> std::io::Result<()> {
+        if path.is_none(){
+            let mut path = dirs::download_dir().expect("[Error] Failed To Get Download Directory");
+            
+            path.set_file_name(OsStr::new(&self.cid));
+            path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
+            
+            // Write To File in Downloads Directory
+            let mut file = File::create(path)?;
+            file.write_all(&self.data)?;
+            return Ok(());
+        }
+        else if path.is_some() {
+            let mut new_path: PathBuf = path.expect("Failed To Unwrap Path in Download Section").as_ref().to_path_buf();
+            // Set File Name and Extension
+            new_path.set_file_name(OsStr::new(&self.cid));
+            new_path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
+
+            let mut file = File::create(new_path)?;
+            file.write_all(&self.data)?;
+            return Ok(());
+        }
+        else {
+            panic!("Unreachabled Code was reached in download section");
+        }
+
     fn to_bytes(input: &[u64]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 * input.len());
     
@@ -180,9 +235,20 @@ impl FileData {
         bytes
     }
 }
+    fn to_bytes(input: &[u64]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 * input.len());
 
+        for value in input {
+            bytes.extend(&value.to_be_bytes());
+        }
+
+        bytes
+    }
+}
+    /*
 impl DataPiece {
     pub fn new<T: AsRef<Path>>(path: T, layer: RingLayer, media_type: MediaType){
         let fbuffer: FileBuffer = FileBuffer::open(&path).expect("[Error 0x000] Failed To Open File ");
     }
 }
+*/

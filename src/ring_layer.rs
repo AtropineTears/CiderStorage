@@ -5,7 +5,7 @@ use serde::{Serialize,Deserialize};
 pub enum RingLayer {
     // Essentials
     Kernel,
-    
+
     CoreDevelopers, // Essential For Developers
     CoreCrypto, // Stores Core Cryptography Keys
     CoreCollections, // A Collection Is A List Of CIDs (Hashes) under one CID (hash)
@@ -21,7 +21,9 @@ pub enum RingLayer {
     Organization,
     Collections,
 
-    OpenDomain, // [Example] A Domain System That Allows Different Branches Of
+    OpenDomain {
+        domain: String,
+    }, // [Example] A Domain System That Allows Different Branches Of
 
     
     Private,
