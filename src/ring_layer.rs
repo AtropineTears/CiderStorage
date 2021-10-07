@@ -2,7 +2,7 @@ use serde::{Serialize,Deserialize};
 
 
 #[derive(Debug,Serialize,Deserialize,PartialEq,PartialOrd,Hash,Clone)]
-pub enum RingLayer {
+pub enum CiderRingLayer {
     // Essentials
     Kernel,
 
@@ -28,4 +28,8 @@ pub enum RingLayer {
     
     Private,
     Unlabeled, // Unknown or not labeled yet
+}
+
+pub struct CiderRingLayer {
+
 }

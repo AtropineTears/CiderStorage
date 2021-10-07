@@ -2,7 +2,7 @@ use chrono::prelude::*;
 use serde::{Serialize,Deserialize};
 
 use crate::enums::MediaType;
-use crate::ring_layer::RingLayer;
+use crate::ring_layer::CiderRingLayer;
 
 use std::io;
 use std::io::prelude::*;
@@ -33,7 +33,7 @@ use crate::errors::CiderErrors;
 // To Upload File
     // PoW must be done to prevent spam and only allow certain files to upload
 #[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
-pub struct FileData {
+pub struct CiderData {
     // CID
     pub cid: String,
 
@@ -45,8 +45,9 @@ pub struct FileData {
     pub extension: Option<OsString>
 }
 
+
+
 pub struct FileMetaData {
-    pub layer: RingLayer,
 
     // Metadata
     pub media_type: MediaType,
@@ -68,16 +69,18 @@ pub struct FileMetaData {
 
 #[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
 pub struct DataPiece {
-    // Data
-    pub file: FileData,
-
     // Layer
-    pub layer: RingLayer,
+    pub layer: CiderRingLayer,
+    
+    // Data
+    pub file: CiderData,
+
+
     
 
 }
 
-impl FileData {
+impl CiderData {
     /// # New
     /// 
     /// Generates a CID for a new FileData struct encoded in Base32. It contains the data in bytes, an empty nonce, and the CID (48 byte hash encoded in Base32)
@@ -126,7 +129,7 @@ impl FileData {
             attempts += 1;
             let mut bytes_with_nonce = bytes.clone();
 
-            let mut nonce_u8_vector = FileData::to_bytes(&vec![nonce_u64]);
+            let mut nonce_u8_vector = CiderData::to_bytes(&vec![nonce_u64]);
 
             // Add nonce vector
             bytes_with_nonce.append(&mut nonce_u8_vector);
@@ -181,7 +184,7 @@ impl FileData {
             let mut bytes = self.data.clone();
 
             // Convert u64 to vector of u8s
-            let mut nonce_u8_vector = FileData::to_bytes(&vec![self.nonce.unwrap()]);
+            let mut nonce_u8_vector = CiderData::to_bytes(&vec![self.nonce.unwrap()]);
 
             // Combine data and nonce
             bytes.append(&mut nonce_u8_vector);
@@ -200,19 +203,19 @@ impl FileData {
         }
     }
     pub fn download<T: AsRef<Path>>(&self, mut path: Option<T>) -> std::io::Result<()> {
-        if path.is_none(){
-            let mut path = dirs::download_dir().expect("[Error] Failed To Get Download Directory");
+        if path.as_ref().is_none(){
+            let mut new_path = dirs::download_dir().expect("[Error] Failed To Get Download Directory");
             
-            path.set_file_name(OsStr::new(&self.cid));
-            path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
+            new_path.set_file_name(OsStr::new(&self.cid));
+            new_path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
             
             // Write To File in Downloads Directory
-            let mut file = File::create(path)?;
+            let mut file = File::create(new_path)?;
             file.write_all(&self.data)?;
             return Ok(());
         }
-        else if path.is_some() {
-            let mut new_path: PathBuf = path.expect("Failed To Unwrap Path in Download Section").as_ref().to_path_buf();
+        else if path.as_ref().is_some() {
+            let mut new_path: PathBuf = path.as_ref().expect("Failed To Unwrap Path in Download Section").as_ref().to_path_buf();
             // Set File Name and Extension
             new_path.set_file_name(OsStr::new(&self.cid));
             new_path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
