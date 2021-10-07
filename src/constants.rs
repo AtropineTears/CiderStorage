@@ -1,0 +1,1 @@
+pub const BLAKE2B_DIGEST_SIZE_IN_BYTES: usize = 48usize;
