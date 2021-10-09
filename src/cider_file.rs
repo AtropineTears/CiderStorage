@@ -7,6 +7,7 @@ use crate::ring_layer::CiderRingLayer;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use std::fs;
 
 use std::path::{Path,PathBuf};
 
@@ -22,8 +23,11 @@ use paranoid_hash::OsAlgorithm;
 use dirs::*;
 
 use crate::constants::BLAKE2B_DIGEST_SIZE_IN_BYTES;
+use crate::constants::BYTES_IN_A_CHUNK;
 
 use base32::{encode,decode};
+
+use blake3::Hash;
 
 use crate::errors::CiderErrors;
 
@@ -79,6 +83,18 @@ pub struct DataPiece {
     
 
 }
+
+pub struct CiderChunks {
+    Vec<>
+}
+
+pub struct CiderFileChunks {
+    number_of_chunks: usize,
+    blake3_checksum: Vec<String>,
+    chunks: Vec<CiderChunk>,
+}
+
+type CiderChunk = Vec<u8>;
 
 impl CiderData {
     /// # New
@@ -227,7 +243,13 @@ impl CiderData {
         else {
             panic!("Unreachabled Code was reached in download section");
         }
+    }
+    pub fn into_chunks(&self) -> CiderFileChunks {
+        //let x = fs::metadata(path)?.len();
 
+        
+        //let buf: [u8;BYTES_IN_A_CHUNK] = self.data
+    }
     fn to_bytes(input: &[u64]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 * input.len());
     
