@@ -3,7 +3,7 @@ pub mod constants;
 
 pub mod enums;
 pub mod cider_file;
-pub mod ring_layer;
+//pub mod ring_layer;
 
 
 #[cfg(test)]

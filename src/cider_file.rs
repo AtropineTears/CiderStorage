@@ -2,7 +2,7 @@ use chrono::prelude::*;
 use serde::{Serialize,Deserialize};
 
 use crate::enums::MediaType;
-use crate::ring_layer::CiderRingLayer;
+//use crate::ring_layer::CiderRingLayer;
 
 use std::io;
 use std::io::prelude::*;
@@ -10,6 +10,8 @@ use std::fs::File;
 use std::fs;
 
 use std::path::{Path,PathBuf};
+use std::io::prelude::*;
+
 
 use std::ffi::{OsStr,OsString};
 
@@ -30,6 +32,9 @@ use base32::{encode,decode};
 use blake3::Hash;
 
 use crate::errors::CiderErrors;
+
+use log::{info,warn,error,debug};
+
 
 // Ring
     // It is called a ring (layer) which makes up a circle that one can build.
@@ -74,7 +79,7 @@ pub struct FileMetaData {
 #[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
 pub struct DataPiece {
     // Layer
-    pub layer: CiderRingLayer,
+    //pub layer: CiderRingLayer,
     
     // Data
     pub file: CiderData,
@@ -84,17 +89,13 @@ pub struct DataPiece {
 
 }
 
-pub struct CiderChunks {
-    Vec<>
-}
-
-pub struct CiderFileChunks {
+pub struct CiderDataPieces {
     number_of_chunks: usize,
     blake3_checksum: Vec<String>,
-    chunks: Vec<CiderChunk>,
+    chunks: Vec<CiderPieces>,
 }
 
-type CiderChunk = Vec<u8>;
+type CiderPieces = Vec<u8>;
 
 impl CiderData {
     /// # New
@@ -244,12 +245,53 @@ impl CiderData {
             panic!("Unreachabled Code was reached in download section");
         }
     }
-    pub fn into_chunks(&self) -> CiderFileChunks {
-        //let x = fs::metadata(path)?.len();
+    pub fn into_pieces(&self) {
+        let mut pieces: Vec<CiderPieces> = vec![];
+        let mut blake3_hashes: Vec<String> = vec![];
+        
+        // Get Number of Bytes of Data
+        let num_of_bytes: usize = self.data.len();
+
+
+
+        // Perform Math. Will always floor division so add 1 if not 0
+        let mut num_of_pieces: usize = num_of_bytes / BYTES_IN_A_CHUNK;
+        let modulus = num_of_bytes % BYTES_IN_A_CHUNK;
+
+        // If modulus is not equal to 0, add one
+        if modulus != 0usize {
+            num_of_pieces += 1usize;
+        }
+
+        println!("Number of Bytes In File: {}",num_of_bytes);
+        println!("Number of Pieces: {}",&num_of_pieces);
+        println!("Last Piece Size: {}",&modulus);
+
+        // Init i
+        //let mut i: usize = 0;
+
+        for x in 0..num_of_pieces {
+            let position: usize = x * BYTES_IN_A_CHUNK;
+            let mut position_end: usize = (x + 1) * BYTES_IN_A_CHUNK;
+
+            println!("i: {}",x);
+            
+
+            if x == (num_of_pieces-1usize) {
+                position_end = num_of_bytes;
+            }
+
+            let mut buf: CiderPieces = self.data[position..position_end].to_vec();
+            let hash = blake3::hash(&buf);
+            pieces.push(buf);
+            blake3_hashes.push(hex::encode_upper(hash.as_bytes()));
+        }
+        return 
+        println!("{:?}",pieces)
+    }
 
         
         //let buf: [u8;BYTES_IN_A_CHUNK] = self.data
-    }
     fn to_bytes(input: &[u64]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 * input.len());
     
@@ -260,20 +302,3 @@ impl CiderData {
         bytes
     }
 }
-    fn to_bytes(input: &[u64]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(8 * input.len());
-
-        for value in input {
-            bytes.extend(&value.to_be_bytes());
-        }
-
-        bytes
-    }
-}
-    /*
-impl DataPiece {
-    pub fn new<T: AsRef<Path>>(path: T, layer: RingLayer, media_type: MediaType){
-        let fbuffer: FileBuffer = FileBuffer::open(&path).expect("[Error 0x000] Failed To Open File ");
-    }
-}
-*/
