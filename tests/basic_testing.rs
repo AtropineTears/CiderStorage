@@ -36,5 +36,4 @@ fn test_pieces(){
     path.push("/Users/0xSilene/test.txt");
 
     let mut file = CiderData::new(path.clone());
-    let pieces = file.into_pieces();
 }
