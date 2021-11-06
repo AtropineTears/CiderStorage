@@ -44,38 +44,21 @@ use log::{info,warn,error,debug};
 #[derive(Debug,Serialize,Deserialize,Clone,PartialEq,PartialOrd,Hash)]
 pub struct CiderData {
     // CID
-    pub cid: String,
+    cid: String,
 
     // Data + Nonce
-    pub data: Vec<u8>,
-    pub nonce: Option<u64>,
+    data: Option<Vec<u8>>,
+    nonce: Option<u64>,
+
+    // Hashes of Original Data
+    blake2: String,
+    sha512: String,
 
     // CiderDataPieces
-    pub cdp: CiderDataPieces,
+    cdp: CiderDataPieces,
 
     // Extension
-    pub extension: Option<OsString>
-}
-
-
-
-pub struct FileMetaData {
-    // Metadata
-    pub media_type: MediaType,
-    pub extension: Option<String>, // Up to 4 chars
-    pub description: Option<String>, // Up to 512 chars
-
-    // Hashing
-    pub sha512_checksum: Option<String>,
-
-    // Tagging (or Labels)
-    pub tags: Option<Vec<String>>,
-
-    // Time
-    pub unverified_timestamp: Option<DateTime<Utc>>,
-    pub unverified_author: Option<String>,
-    pub unverified_author_pk: Option<String>,
-    pub unverified_signature: Option<String>,
+    extension: Option<OsString>
 }
 
 /// # CiderDataPieces (CDP)
@@ -85,7 +68,7 @@ pub struct FileMetaData {
 /// 
 #[derive(Debug,Clone,Hash,Serialize,Deserialize,PartialEq,PartialOrd)]
 pub struct CiderDataPieces {
-    cdp_hash: String,
+    cdp_hash: String, // Hash of all blake3 checksums combined
     
         number_of_pieces: usize,
     
@@ -117,20 +100,27 @@ impl CiderData {
         let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES,OsAlgorithm::SHA512);
         let hash_hex = context.read(path.as_ref()).unwrap();
         let hash_bytes = ParanoidHash::as_bytes(&hash_hex.0);
+        
+        let hash_b2 = hash_hex.0;
+        let hash_sha512 = hash_hex.1;
 
         let cid = base32::encode(base32::Alphabet::RFC4648 { padding: false},&hash_bytes);
 
         let cdp = CiderData::into_pieces(&bytes);
 
         return Self {
-            data: bytes,
+            data: Some(bytes),
+
+            blake2: hash_b2,
+            sha512: hash_sha512,
+
             nonce: None,
             cid: cid,
             cdp: cdp,
             extension: Some(extension),
         }
     }
-    pub fn new_pow<T: AsRef<Path>, S: AsRef<str>>(path: T, cid_pow: S) -> Result<Self,CiderErrors> {
+    pub fn new_with_nonce<T: AsRef<Path>, S: AsRef<str>>(path: T, cid_pow: S) -> Result<Self,CiderErrors> {
         let extension = path.as_ref().extension().expect("[Error 0x0002] Failed To Get File Extension").to_os_string();
 
         
@@ -161,6 +151,9 @@ impl CiderData {
             let hash_hex = context.read_bytes(&bytes_with_nonce);
             let hash_bytes = ParanoidHash::as_bytes(&hash_hex.0);
 
+            let hash_b2 = hash_hex.0;
+            let hash_sha512 = hash_hex.1;
+
             let cid = base32::encode(base32::Alphabet::RFC4648 { padding: false},&hash_bytes);
 
             if cid.starts_with(&x) {
@@ -172,7 +165,10 @@ impl CiderData {
                 return Ok(Self {
                     cdp: cdp,
 
-                    data: bytes,
+                    blake2: hash_b2,
+                    sha512: hash_sha512,
+
+                    data: Some(bytes),
                     nonce: Some(nonce_u64),
                     cid: cid,
                     extension: Some(extension),
@@ -334,7 +330,7 @@ impl CiderData {
 }
 
 impl CiderDataPieces {
-    pub fn download(&self){
+    pub fn construct(&self){
 
     }
     /// ### Developer Notes
@@ -343,17 +339,29 @@ impl CiderDataPieces {
     /// 
     /// Step 2. Check pieces are equal in length
     /// 
-    /// Step 3. Verify Each Piece
-    pub fn verify(&self,cid: String) -> Result<(),CiderErrors> {
+    /// Step 3. Verify Each Piece and return data
+    /// 
+    /// Step 4. Return CID from data (also checks for nonce to add to data)
+    /// 
+    /// Step 5. 
+    /// 
+    /// ## Warning
+    /// 
+    /// Nonces are unimplemented as of now
+    pub fn verify(&self,cid: String, nonce: Option<u64>) -> Result<Vec<u8>,CiderErrors> {
         self.verify_cdp()?;
         self.verify_lengths_initial()?;
-        let cid_output = self.verify_pieces()?;
+        let data = self.verify_pieces()?;
+        let (b2,sha512) = self.return_hash_of_data(data);
+        
+        let cid_output = self.return_cid(data, nonce);
+        let cid_is_valid = self.verify_cid(cid_output, cid);
 
-        if cid != cid_output {
-            return Err(CiderErrors::CidIsInvalid)
+        if cid_is_valid {
+            return Ok(data)
         }
         else {
-            return Ok(())
+            return Err(CiderErrors::CidIsInvalid)
         }
     }
     fn get_cdp_hash(&self) -> String {
@@ -369,10 +377,98 @@ impl CiderDataPieces {
 
         return output
     }
-    /// # Verify Pieces (and returns CID)
+    /// # Verify Pieces (and returns Data as a whole)
     /// 
-    /// This function will verify pieces and return the data's CID
-    fn verify_pieces(&self) -> Result<String,CiderErrors> {
+    /// This function will verify pieces and return the data
+    fn verify_pieces(&self) -> Result<Vec<u8>,CiderErrors> {
+        // Data used to get the CID
+        let mut data: Vec<u8> = vec![];
+        
+        for x in 0..self.number_of_pieces {
+            // Setup Blake3 Hasher
+            let mut b3_checksum = blake3::Hasher::new();
+            
+            // Get Piece Data and Hash
+            let hash = &self.blake3_checksum_of_pieces[x];
+            let mut piece = self.pieces[x].clone();
+
+            // Hash Piece
+            b3_checksum.update(&piece);
+            let hash_output = &hex::encode_upper(b3_checksum.finalize().as_bytes());
+
+            
+
+            if hash_output != hash {
+                return Err(CiderErrors::BadBlake3Checksum)
+            }
+            else {
+
+                // Add nonce vector
+                data.append(&mut piece);
+            }
+        }
+        return Ok(data)
+
+        /*
+        if nonce.is_none() {
+            let cid = CiderData::to_cid(data);
+            return Ok(cid)
+        }
+        else {
+            let mut nonce_u8_vector = CiderData::to_bytes(&vec![nonce.expect("[Error] Unrecoverable Error: 0x7777")]);
+            data.append(&mut nonce_u8_vector);
+            let cid = CiderData::to_cid(data);
+            return Ok(cid)
+        }
+        */
+    }
+    fn return_cid(&self, mut data: Vec<u8>, nonce: Option<u64>) -> String {
+        if nonce.is_none() {
+            let cid = CiderData::to_cid(data);
+            return cid
+        }
+        else {
+            let mut nonce_u8_vector = CiderData::to_bytes(&vec![nonce.expect("[Error] Unrecoverable Error: 0x7777")]);
+            data.append(&mut nonce_u8_vector);
+            let cid = CiderData::to_cid(data);
+            return cid
+        }
+    }
+    fn verify_cid(&self, cid: String, expected_cid: String) -> bool {
+        if cid == expected_cid {
+            return true
+        }
+        else {
+            return false
+        }
+    }
+    fn verify_lengths_initial(&self) -> Result<(),CiderErrors> {
+        if self.blake3_checksum_of_pieces.len() == self.number_of_pieces {
+            log::debug!("[Debug] Blake3 Checksums of Pieces and Pieces Length Are The Same");
+            return Ok(())
+        }
+        else {
+            log::debug!("[Debug] Length Error");
+            return Err(CiderErrors::CdpPiecesLengthIsWrong)
+        }
+    }
+    fn verify_cdp(&self) -> Result<(),CiderErrors> {
+        let cdp = self.get_cdp_hash();
+
+        if cdp != self.cdp_hash {
+            return Err(CiderErrors::BadBlake3Checksum)
+        }
+        else {
+            Ok(())
+        }
+    }
+    fn return_hash_of_data(&self,data: Vec<u8>) -> (String, String) {
+        let hasher = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES, OsAlgorithm::SHA512);
+        let (b2,sha512) = hasher.read_bytes(&data);
+
+        return (b2,sha512)
+    }
+    fn construct_file(){
         // Data used to get the CID
         let mut data: Vec<u8> = vec![];
         
@@ -396,29 +492,6 @@ impl CiderDataPieces {
             else {
                 data.append(&mut piece);
             }
-        }
-        let cid = CiderData::to_cid(data);
-
-        return Ok(cid)
-    }
-    fn verify_lengths_initial(&self) -> Result<(),CiderErrors> {
-        if self.blake3_checksum_of_pieces.len() == self.number_of_pieces {
-            log::debug!("[Debug] Blake3 Checksums of Pieces and Pieces Length Are The Same");
-            return Ok(())
-        }
-        else {
-            log::debug!("[Debug] Length Error");
-            return Err(CiderErrors::CdpPiecesLengthIsWrong)
-        }
-    }
-    fn verify_cdp(&self) -> Result<(),CiderErrors> {
-        let cdp = self.get_cdp_hash();
-
-        if cdp != self.cdp_hash {
-            return Err(CiderErrors::BadBlake3Checksum)
-        }
-        else {
-            Ok(())
         }
     }
 }
