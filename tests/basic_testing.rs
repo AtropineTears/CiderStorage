@@ -19,3 +19,11 @@ fn test_pieces(){
 
     let mut file = CiderData::new(path.clone());
 }
+
+#[test]
+fn test_pow(){
+    let mut path = PathBuf::new();
+    path.push("/Users/0xSilene/test.txt");
+
+    let mut file = CiderData::new(path.clone());
+}

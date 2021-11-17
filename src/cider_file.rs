@@ -1,3 +1,4 @@
+use crate::constants::BLAKE2B_DIGEST_SIZE_FILENAME;
 use chrono::prelude::*;
 use serde::{Serialize,Deserialize};
 
@@ -35,6 +36,36 @@ use crate::errors::CiderErrors;
 
 use log::{info,warn,error,debug};
 
+use std::collections::HashMap;
+
+use crate::constants::*;
+
+/*
+pub struct DownloadedPiecesCache {
+    cdp: String,
+    
+    pieces: HashMap<String,CiderPieces>, // Hashmap
+                                            // Used To Easily Get Pieces That Are Requested
+    blake3_hashes: Vec<String>,
+
+    expected_num_of_pieces: usize,
+    current_num_of_pieces: usize,
+}
+
+impl DownloadedPiecesCache {
+    pub fn new<T: AsRef<str>>(cdp: T) -> Self {
+
+    }
+    pub fn add_to_pieces(){
+
+    }
+
+    fn hash_piece(piece: &[u8]) -> String {
+        let hash1 = hex::encode_upper(blake3::hash(piece).as_bytes());
+        return hash1
+    }
+}
+*/
 
 // Ring
     // It is called a ring (layer) which makes up a circle that one can build.
@@ -46,9 +77,15 @@ pub struct CiderData {
     // CID
     cid: String,
 
+    // Blake2b 6-bytes
+    filename: String,
+
     // Data + Nonce
     data: Option<Vec<u8>>,
     nonce: Option<u64>,
+
+    // PoW
+    pow_nonce: Option<u64>,
 
     // Hashes of Original Data
     blake2: String,
@@ -74,6 +111,8 @@ pub struct CiderDataPieces {
     
         blake3_checksum_of_pieces: Vec<String>,
         pieces: Vec<CiderPieces>,
+
+        has_all_pieces: bool,
 
         //want_list: Vec<String>,
         //have_list: Vec<String>,
@@ -106,10 +145,18 @@ impl CiderData {
 
         let cid = base32::encode(base32::Alphabet::RFC4648 { padding: false},&hash_bytes);
 
+        let filename = Self::to_filename(&bytes);
+
         let cdp = CiderData::into_pieces(&bytes);
 
+        let pow_nonce = Self::get_pow_nonce(cid.clone(), DIFFICULTY_LOWEST);
+
         return Self {
+            filename: filename,
+
             data: Some(bytes),
+
+            pow_nonce: Some(pow_nonce),
 
             blake2: hash_b2,
             sha512: hash_sha512,
@@ -162,7 +209,15 @@ impl CiderData {
 
                 let cdp = CiderData::into_pieces(&bytes);
 
+                let filename = Self::to_filename(&bytes);
+
+                let pow_nonce = Self::get_pow_nonce(cid.clone(), DIFFICULTY_LOWEST);
+
                 return Ok(Self {
+                    filename: filename,
+
+                    pow_nonce: Some(pow_nonce),
+                    
                     cdp: cdp,
 
                     blake2: hash_b2,
@@ -224,11 +279,21 @@ impl CiderData {
             }
         }
     }
-    pub fn download<T: AsRef<Path>>(&self, mut path: Option<T>) -> std::io::Result<()> {
-        if path.as_ref().is_none(){
-            let mut new_path = dirs::download_dir().expect("[Error] Failed To Get Download Directory");
+    /// ## Developer Notes
+    /// 
+    /// Do not remove the joining filename of `DO_NOT_REMOVE`. This is in place so the path is done right.
+    pub fn download(&self, mut path: Option<PathBuf>) -> std::io::Result<()> {
+        if path.is_none(){
+            let mut new_path: PathBuf = dirs::download_dir().expect("[Error] Failed To Get Download Directory").join("DO_NOT_REMOVE");
+
+            //new_path.join("test.txt");
+            println!("Path: {:?}",new_path);
+
+            //println!("Data {:?}",self.data.as_ref().expect("Failed To Get Data"));
+            //println!("CID: {}",self.cid);
+
             
-            new_path.set_file_name(OsStr::new(&self.cid));
+            new_path.set_file_name(OsStr::new(&self.filename));
             new_path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
             
             // Write To File in Downloads Directory
@@ -236,11 +301,18 @@ impl CiderData {
             file.write_all(&self.data.as_ref().expect("[Error] No Data Provided"))?;
             return Ok(());
         }
-        else if path.as_ref().is_some() {
-            let mut new_path: PathBuf = path.as_ref().expect("Failed To Unwrap Path in Download Section").as_ref().to_path_buf();
+        else if path.is_some() {
+            
+            let mut new_path: PathBuf = path.expect("[Error] Failed To Get Path").join("DO_NOT_REMOVE");
+            println!("Path: {:?}",new_path);
+
+            
             // Set File Name and Extension
-            new_path.set_file_name(OsStr::new(&self.cid));
+            new_path.set_file_name(OsStr::new(&self.filename));
             new_path.set_extension(self.extension.clone().unwrap_or(OsString::new()));
+
+            println!("Path: {:?}",new_path);
+
 
             let mut file = File::create(new_path)?;
             file.write_all(&self.data.as_ref().expect("[Error] No Data Provided In CiderDataPiece"))?;
@@ -305,10 +377,11 @@ impl CiderData {
             number_of_pieces: num_of_pieces,
             blake3_checksum_of_pieces: blake3_hashes,
             pieces: pieces,
+
+            has_all_pieces: true,
         }
         //println!("{:?}",pieces)
     }
-
     fn to_cid<T: AsRef<[u8]>>(data: T) -> String {
         let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES,OsAlgorithm::SHA512);
         let hash_hex = context.read_bytes(&data.as_ref());
@@ -329,9 +402,81 @@ impl CiderData {
     
         bytes
     }
+    fn to_filename<T: AsRef<[u8]>>(data: T) -> String {
+        let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_FILENAME,OsAlgorithm::SHA512);
+        let hash_hex = context.read_bytes(data.as_ref());
+        let hash_bytes = ParanoidHash::as_bytes(&hash_hex.0);
+        let filename = base32::encode(base32::Alphabet::RFC4648 { padding: false},&hash_bytes);
+
+        let filename_undercase = filename.to_ascii_lowercase();
+
+        return filename_undercase
+    }
+    /// # Get PoW Nonce
+    /// 
+    /// ## Description
+    /// 
+    /// This function will return the nonce for your given CID.
+    /// 
+    /// ## Definition
+    /// 
+    /// `Blake3_Hash(CID + PoW Nonce)`
+    /// 
+    /// ## Difficulties
+    /// 
+    /// There are three difficulties:
+    /// 
+    /// 1. Lowest (`0000`)
+    /// 2. Medium (`000000`)
+    /// 3. Highest (`00000000`)
+    /// 
+    /// The higher you set your file to, the more likely it is to stay up on the network as nodes prefer files with a higher nonce.
+    fn get_pow_nonce(cid: String, difficulty: &str) -> u64 {
+        println!("Getting Proof of Work Nonce");
+        
+        let mut pow_nonce: u64 = 0u64;
+        let cid_pow_vector: Vec<u8> = cid.as_bytes().to_vec();
+
+
+        loop {
+            // Initialize CID
+            let mut cid_pow: Vec<u8> = cid_pow_vector.clone();
+
+            // Convert u64 -> u8 bytes
+            let mut pow_bytes = Self::to_bytes(&vec![pow_nonce]);
+
+            // Append u8 bytes to CID
+            cid_pow.append(&mut pow_bytes);
+
+            // Hash Output
+            let b3_pow = blake3::hash(&cid_pow);
+
+            // Encode Hash as Hexadecimal
+            let verify_hash = hex::encode_upper(b3_pow.as_bytes());
+
+            if verify_hash.starts_with(difficulty){
+                println!("Got PoW Nonce");
+                return pow_nonce
+            }
+            else {
+                pow_nonce += 1;
+            }
+        }
+    }
 }
 
 impl CiderDataPieces {
+    /// # Has All Pieces
+    /// 
+    /// Checks whether the user has all the pieces. If it does, they become a seeder
+    pub fn has_all_pieces(&self) -> bool {
+        let output = self.verify_pieces();
+
+        match output {
+            Ok(v) => return true,
+            Err(_) => return false
+        }
+    }
     pub fn construct<T: AsRef<str>>(&self,cid: &str, nonce: Option<u64>, extension: Option<OsString>) -> CiderData {
         let (b2,sha512,data,cid) = self.verify(cid,nonce).expect("[Error] Failed To Verify");
         
@@ -340,12 +485,21 @@ impl CiderDataPieces {
             blake3_checksum_of_pieces: self.blake3_checksum_of_pieces.clone(),
             number_of_pieces: self.number_of_pieces,
             pieces: self.pieces.clone(),
+
+            has_all_pieces: true,
         };
+
+        let filename = CiderData::to_filename(&data);
+
+        let pow_nonce = CiderData::get_pow_nonce(cid.clone(), DIFFICULTY_LOWEST);
 
         return CiderData {
             cid: cid,
             data: Some(data),
             nonce: nonce,
+
+            filename: filename,
+            pow_nonce: Some(pow_nonce),
 
             blake2: b2,
             sha512: sha512,
