@@ -23,7 +23,8 @@ fn test_pieces(){
 #[test]
 fn test_pow(){
     let mut path = PathBuf::new();
-    path.push("/Users/0xSilene/test.txt");
+    path.push("/Users/0xSilene/Downloads/Hanna.mp4");
 
     let mut file = CiderData::new(path.clone());
+    file.download(None);
 }

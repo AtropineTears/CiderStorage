@@ -77,7 +77,7 @@ pub struct CiderData {
     // CID
     cid: String,
 
-    // Blake2b 6-bytes
+    // Blake2b 8-bytes (encoded in base32)
     filename: String,
 
     // Data + Nonce
@@ -408,9 +408,9 @@ impl CiderData {
         let hash_bytes = ParanoidHash::as_bytes(&hash_hex.0);
         let filename = base32::encode(base32::Alphabet::RFC4648 { padding: false},&hash_bytes);
 
-        let filename_undercase = filename.to_ascii_lowercase();
+        let filename_uppercase = filename.to_ascii_uppercase();
 
-        return filename_undercase
+        return filename_uppercase
     }
     /// # Get PoW Nonce
     /// 
@@ -462,6 +462,34 @@ impl CiderData {
                 pow_nonce += 1;
             }
         }
+    }
+    fn verify_pow_nonce(&self) -> bool {
+        // Intialize CID as Bytes
+        let mut bytes: Vec<u8> = self.cid.as_bytes().to_vec();
+        
+        // Convert u64 to bytes
+        let mut pow_nonce_bytes = Self::to_bytes(&vec![self.pow_nonce.expect("[Error] Failed To Unwrap PoW Nonce")]);
+        
+        bytes.append(&mut pow_nonce_bytes);
+
+        let hash = hex::encode_upper(blake3::hash(&bytes).as_bytes());
+
+        if hash.starts_with(DIFFICULTY_HIGHEST){
+            log::info!("Difficulty: HIGHEST");
+            return true
+        }
+        else if hash.starts_with(DIFFICULTY_MEDIUM){
+            log::info!("Difficulty: MEDIUM");
+            return true
+        }
+        else if hash.starts_with(DIFFICULTY_LOWEST){
+            log::info!("Difficulty: LOWEST");
+            return true
+        }
+        else {
+            return false
+        }
+
     }
 }
 
