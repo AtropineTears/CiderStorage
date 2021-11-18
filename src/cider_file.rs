@@ -242,6 +242,15 @@ impl CiderData {
         // Asserts CID is 77 bytes long
         assert_eq!(self.cid.len(),77usize);
 
+        if self.verify_pow_nonce() == true {
+            log::info!("[INFO] PoW Nonce is Valid")
+        }
+        else {
+            log::info!("[INFO] PoW Nonce is Invalid");
+            log::error!("[Error] PoW Nonce is Invalid");
+            return false
+        }
+
         if self.nonce == None && self.data.is_some() {
             let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES,OsAlgorithm::SHA512);
             let output = context.read_bytes(&self.data.as_ref().unwrap());
