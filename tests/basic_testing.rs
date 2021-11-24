@@ -1,23 +1,29 @@
 use CiderStorage::cider_file::CiderData;
 use std::path::{Path,PathBuf};
+use env_logger::*;
 
-#[test]
-fn test_file_hash(){
-    let mut path = PathBuf::new();
-    path.push("C:\\Users\\Amelie\\Desktop\\test.txt");
+fn create_logs(){
+    Builder::new()
+        .target(Target::Stdout)
+        .init();
+}
 
-    let file = CiderData::new(path);
-
+fn init() {
+    let _ = env_logger::builder()
+    .is_test(true)
+    .target(Target::Stdout)
+    .try_init();
 }
 
 #[test]
-
-#[test]
 fn test_pieces(){
+    init();
     let mut path = PathBuf::new();
     path.push("/Users/0xSilene/test.txt");
 
     let mut file = CiderData::new(path.clone());
+    file.verify();
+    file.download(None);
 }
 
 #[test]
@@ -26,5 +32,19 @@ fn test_pow(){
     path.push("/Users/0xSilene/Downloads/Hanna.mp4");
 
     let mut file = CiderData::new(path.clone());
-    file.download(None);
+    file.verify();
+    let cid = file.return_cid();
+    println!("{}",cid);
+    //file.download(None);
+}
+
+#[test]
+fn test_pow_2(){
+    let mut path = PathBuf::new();
+    path.push("/Users/0xSilene/Downloads/Hanna.mp4");
+
+    let mut file = CiderData::new_with_nonce(path.clone(),"CID").expect("[Error]");
+    let cid = file.return_cid();
+    println!("{}",cid);
+    //file.download(None);
 }
