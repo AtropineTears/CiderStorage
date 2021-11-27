@@ -5,8 +5,11 @@ use serde::{Serialize,Deserialize};
 pub enum CiderErrors {
     FileNotFound,
 
+    CiderSwapDataIsNotComplete, // Means you do not have all the pieces to construct the CiderPiecesSwap
+
     //
-    BadBlake3Checksum,
+    BadBlake3Checksum, // CDP is wrong
+    BadBlake3ChecksumAgainstExpected,
     CdpPiecesLengthIsWrong,
 
     CidIsInvalid,

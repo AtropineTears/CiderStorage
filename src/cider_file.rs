@@ -96,7 +96,7 @@ pub struct CiderData {
     sha512: String,
 
     // CiderDataPieces
-    cdp: CiderDataPieces,
+    pub cdp: CiderDataPieces,
 
     // Extension
     extension: Option<OsString>
@@ -107,13 +107,13 @@ pub struct CiderData {
 /// Made up of the blake3 checksums of pieces of a file. The files are split into 256kb.
 /// 
 /// 
-#[derive(Debug,Clone,Hash,Serialize,Deserialize,PartialEq,PartialOrd)]
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,PartialOrd,Hash)]
 pub struct CiderDataPieces {
     cdp_hash: String, // Hash of all blake3 checksums combined
     
         number_of_pieces: usize,
     
-        blake3_checksum_of_pieces: Vec<String>,
+        blake3_checksum_of_pieces: Vec<PieceID>,
         pieces: Vec<CiderPieces>,
 
         has_all_pieces: bool,
@@ -122,8 +122,29 @@ pub struct CiderDataPieces {
         //have_list: Vec<String>,
 }
 
+/// # CiderPieces HashMap
+/// 
+/// The **CiderPieces HashMap** stores the Blake3 Hash of a piece in a HashMap with the position of that piece in the vector. It should be mutable
+/// and should allow a user to insert all their pieces that they currently have.
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+pub struct CiderPiecesSwap {
+    cid: String,
+    
+    has_all_pieces: bool,
+    
+    // Main Data
+    pub have_pieces: HashMap<PieceID,CiderPieces>,
+    pub position_of_pieces: HashMap<PieceID,usize>,
+
+
+    //missing_pieces: HashMap<String,usize>,
+    //retrieved_pieces: HashMap<String,usize>,
+}
+
 /// A vector of bytes which is a single data piece
 type CiderPieces = Vec<u8>;
+// TODO: Possibly remove
+type PieceID = String;
 
 impl CiderData {
     /// # New
@@ -259,17 +280,17 @@ impl CiderData {
     /// 
     /// Step 3. Check 
     pub fn verify(&self) -> bool {
-        log::info!("[IMPORTANT][ACTION] Verifying CID: {}",self.cid);
+        log::info!("[ACTION] Verifying CID: {}",self.cid);
         
         // Step 1. Asserts CID is 52 bytes long
         assert_eq!(self.cid.len(),77usize);
 
         // Step 2. Verify PoW Nonce
         if self.verify_pow_nonce() == true {
-            log::info!("[INFO] PoW Nonce is Valid")
+            log::info!("PoW Nonce is Valid")
         }
         else {
-            log::info!("[INFO] PoW Nonce is Invalid");
+            log::info!("PoW Nonce is Invalid");
             log::error!("[Error] PoW Nonce is Invalid");
             return false
         }
@@ -430,6 +451,9 @@ impl CiderData {
         }
         //println!("{:?}",pieces)
     }
+    pub fn return_nonce(&self) -> Option<u64> {
+        return self.nonce
+    }
     fn to_cid<T: AsRef<[u8]>>(data: T) -> (String, String, String) {
         let context = ParanoidHash::new(BLAKE2B_DIGEST_SIZE_IN_BYTES,OsAlgorithm::SHA512);
         let hash_hex = context.read_bytes(&data.as_ref());
@@ -554,6 +578,39 @@ impl CiderData {
 }
 
 impl CiderDataPieces {
+    pub fn return_all_b3sums(&self) -> Vec<String> {
+        return self.blake3_checksum_of_pieces.clone()
+    }
+    pub fn into_cps(&self,expected_cid: String, nonce: Option<u64>) -> Result<CiderPiecesSwap,CiderErrors> {
+        let (_,_,_,_,cid) = self.verify(&expected_cid,nonce)?;
+        
+        let mut i: usize = 0usize;
+        let mut have_pieces: HashMap<PieceID,CiderPieces> = HashMap::new();
+        let mut position_of_pieces: HashMap<PieceID,usize> = HashMap::new();
+
+        let mut has_all_pieces: bool = false;
+
+
+        if self.blake3_checksum_of_pieces.len() == self.pieces.len() && self.blake3_checksum_of_pieces.len() == self.number_of_pieces {
+            has_all_pieces = true;
+        }
+        else {
+            has_all_pieces = false;
+            return Err(CiderErrors::CiderSwapDataIsNotComplete)
+        }
+
+        for x in &self.blake3_checksum_of_pieces {
+            have_pieces.insert(x.clone(),self.pieces[i].clone());
+            position_of_pieces.insert(x.clone(),i);
+            i += 1;
+        }
+        return Ok(CiderPiecesSwap {
+            cid: cid,
+            has_all_pieces: has_all_pieces,
+            have_pieces: have_pieces,
+            position_of_pieces: position_of_pieces
+        })
+    }
     /// # Has All Pieces
     /// 
     /// Checks whether the user has all the pieces. If it does, they become a seeder
@@ -577,6 +634,8 @@ impl CiderDataPieces {
             has_all_pieces: true,
         };
 
+        //TODO:
+        // - Change Filename to first 8 bytes of CID
         let filename = CiderData::to_filename(&data);
 
         let pow_nonce = CiderData::get_pow_nonce(cid.clone(), DIFFICULTY_LOWEST);
@@ -627,7 +686,7 @@ impl CiderDataPieces {
         let cid_is_valid = self.verify_cid(&cid_output, &cid.to_string());
 
         if cid_is_valid {
-            log::info!("[IMPORTANT][INFO] Success In Verifying CiderDataPieces For CID: {}",&cid_output);
+            log::info!("[IMPORTANT] Success In Verifying CiderDataPieces For CID: {}",&cid_output);
             return Ok((b2sum,sha512,b3,data,cid_output))
         }
         else {
@@ -739,6 +798,16 @@ impl CiderDataPieces {
             Ok(())
         }
     }
+    fn verify_cdp_against_expected(&self,expected_cdp: String) -> Result<(),CiderErrors> {
+        let cdp = self.get_cdp_hash();
+
+        if cdp != expected_cdp {
+            return Err(CiderErrors::BadBlake3ChecksumAgainstExpected)
+        }
+        else {
+            Ok(())
+        }
+    }
     fn return_hash_of_data<T: AsRef<[u8]>>(&self,data: T) -> (String,String,String) {
         let b3sum = hex::encode_upper(blake3::hash(data.as_ref()).as_bytes());
         let context = ParanoidHash::new(48, OsAlgorithm::SHA512);
@@ -746,4 +815,5 @@ impl CiderDataPieces {
 
         return (b2,sha512,b3sum)
     }
+
 }
