@@ -61,3 +61,17 @@ fn test_pow_2(){
     println!("{}",cid);
     //file.download(None);
 }
+
+#[test]
+fn basics(){
+    let mut path = PathBuf::from("/Users/0xSilene/Downloads/Inkscape-1.1.1.dmg");
+
+    let mut file: CiderData = CiderData::new(path.clone());
+
+    let is_valid = file.verify();
+
+    file.download(None);
+
+    println!("{:?}",is_valid);
+
+}

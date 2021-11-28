@@ -40,9 +40,6 @@ use std::collections::HashMap;
 
 use crate::constants::*;
 
-// TODO:
-// - Remove ParanoidHash and replace with Blake3 in verify() function
-
 /*
 pub struct DownloadedPiecesCache {
     cdp: String,
@@ -133,7 +130,7 @@ pub struct CiderPiecesSwap {
     has_all_pieces: bool,
     
     // Main Data
-    pub have_pieces: HashMap<PieceID,CiderPieces>,
+    pub have_pieces: Option<HashMap<PieceID,CiderPieces>>,
     pub position_of_pieces: HashMap<PieceID,usize>,
 
 
@@ -143,7 +140,7 @@ pub struct CiderPiecesSwap {
 
 /// A vector of bytes which is a single data piece
 type CiderPieces = Vec<u8>;
-// TODO: Possibly remove
+/// The PieceID is a Blake3 Checksum of the Data
 type PieceID = String;
 
 impl CiderData {
@@ -155,7 +152,6 @@ impl CiderData {
     /// 
     /// CID Length: 77 bytes (or chars)
     pub fn new<T: AsRef<Path>>(path: T) -> Self {
-        println!("Starting New");
         // Get Extension
         let extension = path.as_ref().extension().expect("[Error 0x0002] Failed To Get File Extension").to_os_string();
         
@@ -163,10 +159,6 @@ impl CiderData {
         let fbuffer = FileBuffer::open(path.as_ref()).expect("[Error 0x0001] Failed To Open/Read File While Generating FileData Struct.");
         let mut bytes = fbuffer.to_vec();
 
-        println!("After fbuffer");
-
-        println!("Starting Hashing");
-        println!("Starting Blake3 Hash");
         // Get Blake3
         // Used for initial hash check
         let b3sum = blake3::hash(&bytes);
@@ -174,18 +166,12 @@ impl CiderData {
         // Get CID, Blake2b, and SHA512
         let (cid,b2sum,sha512) = Self::to_cid(&bytes);
 
-        println!("Getting Filename");
-
         // Get Filename from CID (usually 8 chars from CID)
         let filename: String = cid[..FILENAME_SIZE].to_ascii_uppercase();
-
-        println!("Got Filename");
 
         let cdp = CiderData::into_pieces(&bytes);
 
         let pow_nonce = Self::get_pow_nonce(cid.clone(), DIFFICULTY_LOWEST);
-
-        println!("End");
 
         return Self {
             filename: filename,
@@ -581,6 +567,9 @@ impl CiderDataPieces {
     pub fn return_all_b3sums(&self) -> Vec<String> {
         return self.blake3_checksum_of_pieces.clone()
     }
+    /// # Into CiderPiecesSwap
+    /// 
+    /// Cider Pieces Swap is a HashMap containing the pieces that will be transferred between peers.
     pub fn into_cps(&self,expected_cid: String, nonce: Option<u64>) -> Result<CiderPiecesSwap,CiderErrors> {
         let (_,_,_,_,cid) = self.verify(&expected_cid,nonce)?;
         
@@ -607,7 +596,7 @@ impl CiderDataPieces {
         return Ok(CiderPiecesSwap {
             cid: cid,
             has_all_pieces: has_all_pieces,
-            have_pieces: have_pieces,
+            have_pieces: Some(have_pieces),
             position_of_pieces: position_of_pieces
         })
     }
@@ -622,6 +611,9 @@ impl CiderDataPieces {
             Err(_) => return false
         }
     }
+    /// # Constructs
+    /// 
+    /// Constructs the `CiderData` struct.
     pub fn construct<T: AsRef<str>>(&self,cid: &str, nonce: Option<u64>, extension: Option<OsString>) -> CiderData {
         let (b2sum,sha512,b3,data,cid) = self.verify(cid,nonce).expect("[Error] Failed To Verify");
         
