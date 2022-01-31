@@ -1,5 +1,5 @@
-use CiderStorage::cider_file::CiderData;
-use CiderStorage::cider_file::*;
+use CiderStorage::cider::CiderData;
+use CiderStorage::cider::*;
 use std::path::{Path,PathBuf};
 use env_logger::*;
 
@@ -47,11 +47,6 @@ fn test_pow_2(){
     let mut file = CiderData::new(path.clone());
     let b3sums = file.cdp.return_all_b3sums();
     let hashmaps = file.cdp.into_cps(file.return_cid(),file.return_nonce()).expect("Failed");
-
-
-    for x in b3sums {
-        println!("{:?}",hashmaps.have_pieces[&x]);
-    }
 
     
     //println!("{}",x.have_pieces);

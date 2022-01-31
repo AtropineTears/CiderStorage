@@ -2,7 +2,6 @@ use crate::constants::BLAKE2B_DIGEST_SIZE_FILENAME;
 use chrono::prelude::*;
 use serde::{Serialize,Deserialize};
 
-use crate::enums::MediaType;
 //use crate::ring_layer::CiderRingLayer;
 
 use std::io;
@@ -111,12 +110,9 @@ pub struct CiderDataPieces {
         number_of_pieces: usize,
     
         blake3_checksum_of_pieces: Vec<PieceID>,
-        pieces: Vec<CiderPieces>,
+        pieces: Option<Vec<CiderPieces>>,
 
         has_all_pieces: bool,
-
-        //want_list: Vec<String>,
-        //have_list: Vec<String>,
 }
 
 /// # CiderPieces HashMap
@@ -126,6 +122,7 @@ pub struct CiderDataPieces {
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
 pub struct CiderPiecesSwap {
     cid: String,
+    cdp_hash: Option<String>,
     
     has_all_pieces: bool,
     
@@ -133,7 +130,7 @@ pub struct CiderPiecesSwap {
     pub have_pieces: Option<HashMap<PieceID,CiderPieces>>,
     pub position_of_pieces: HashMap<PieceID,usize>,
 
-
+    pub want_pieces: Option<Vec<PieceID>>,
     //missing_pieces: HashMap<String,usize>,
     //retrieved_pieces: HashMap<String,usize>,
 }
@@ -431,7 +428,7 @@ impl CiderData {
 
             number_of_pieces: num_of_pieces,
             blake3_checksum_of_pieces: blake3_hashes,
-            pieces: pieces,
+            pieces: Some(pieces),
 
             has_all_pieces: true,
         }
@@ -570,6 +567,8 @@ impl CiderDataPieces {
     /// # Into CiderPiecesSwap
     /// 
     /// Cider Pieces Swap is a HashMap containing the pieces that will be transferred between peers.
+    /// 
+    /// You must have all the pieces to create a CiderPiecesSwap
     pub fn into_cps(&self,expected_cid: String, nonce: Option<u64>) -> Result<CiderPiecesSwap,CiderErrors> {
         let (_,_,_,_,cid) = self.verify(&expected_cid,nonce)?;
         
@@ -577,10 +576,14 @@ impl CiderDataPieces {
         let mut have_pieces: HashMap<PieceID,CiderPieces> = HashMap::new();
         let mut position_of_pieces: HashMap<PieceID,usize> = HashMap::new();
 
+        let cdp_hash = self.get_cdp_hash();
+
         let mut has_all_pieces: bool = false;
 
+        let mut pieces = self.pieces.as_ref().unwrap();
 
-        if self.blake3_checksum_of_pieces.len() == self.pieces.len() && self.blake3_checksum_of_pieces.len() == self.number_of_pieces {
+
+        if self.blake3_checksum_of_pieces.len() == pieces.len() && self.blake3_checksum_of_pieces.len() == self.number_of_pieces {
             has_all_pieces = true;
         }
         else {
@@ -589,15 +592,17 @@ impl CiderDataPieces {
         }
 
         for x in &self.blake3_checksum_of_pieces {
-            have_pieces.insert(x.clone(),self.pieces[i].clone());
+            have_pieces.insert(x.clone(),pieces[i].clone());
             position_of_pieces.insert(x.clone(),i);
             i += 1;
         }
         return Ok(CiderPiecesSwap {
             cid: cid,
+            cdp_hash: Some(cdp_hash),
             has_all_pieces: has_all_pieces,
             have_pieces: Some(have_pieces),
-            position_of_pieces: position_of_pieces
+            position_of_pieces: position_of_pieces,
+            want_pieces: None,
         })
     }
     /// # Has All Pieces
@@ -707,6 +712,8 @@ impl CiderDataPieces {
         
         // Data used to get the CID
         let mut data: Vec<u8> = vec![];
+
+        let mut pieces = self.pieces.as_ref().expect("[Error] Failed To Unwrap Pieces In Verify Pieces Function");
         
         for x in 0..self.number_of_pieces {
             // Setup Blake3 Hasher
@@ -714,7 +721,7 @@ impl CiderDataPieces {
             
             // Get Piece Data and Hash
             let hash = &self.blake3_checksum_of_pieces[x];
-            let mut piece = self.pieces[x].clone();
+            let mut piece = pieces[x].clone();
 
             // Hash Piece
             b3_checksum.update(&piece);
@@ -808,4 +815,10 @@ impl CiderDataPieces {
         return (b2,sha512,b3sum)
     }
 
+}
+
+impl CiderPiecesSwap {
+    pub fn return_want_pieces(&self) -> Vec<PieceID> {
+        return self.want_pieces.as_ref().expect("Failed To Return Want Pieces").to_vec()
+    }
 }

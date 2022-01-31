@@ -1,4 +1,4 @@
-use CiderStorage::cider_file::*;
+use CiderStorage::cider::*;
 use std::path::PathBuf;
 
 #[test]
